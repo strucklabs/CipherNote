@@ -1,0 +1,6 @@
+{
+  "name": "CipherNote – Sichere Notiz- & Clipboard-Zentrale",
+  "description": "Verschlüsselte Notiz- und Clipboard-App mit automatischer Zwischenablage-Erfassung, chronologischer Sortierung, Pins, Deadlines und Cloud-Synchronisation.",
+  "requestFramePermissions": ["clipboard-read", "clipboard-write", "microphone", "camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

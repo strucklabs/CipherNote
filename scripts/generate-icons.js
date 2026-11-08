@@ -1,0 +1,74 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { Resvg } from '@resvg/resvg-js';
+
+// Clean, high-contrast, beautiful icon matching the header shield badge
+// Vibrant teal gradient with crisp white shield, perfectly visible on Pixel 9 Pro and Android launcher
+const svgContent = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bgTeal" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#14B8A6" />
+      <stop offset="50%" stop-color="#0D9488" />
+      <stop offset="100%" stop-color="#0F766E" />
+    </linearGradient>
+    <linearGradient id="innerShieldGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.22" />
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0.06" />
+    </linearGradient>
+    <filter id="subtleShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#042F2E" flood-opacity="0.35" />
+    </filter>
+  </defs>
+
+  <!-- Full-bleed background that works beautifully both edge-to-edge and in Android adaptive masks -->
+  <rect width="512" height="512" fill="url(#bgTeal)" />
+
+  <!-- Subtle radial sheen in top-left -->
+  <circle cx="160" cy="120" r="240" fill="#FFFFFF" opacity="0.10" />
+
+  <!-- Center Shield Group (Lucide Shield, perfectly centered & proportional) -->
+  <g filter="url(#subtleShadow)">
+    <g transform="translate(256, 252) scale(12.5) translate(-12, -12)">
+      <!-- Lucide Shield Path -->
+      <path
+        d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"
+        fill="url(#innerShieldGrad)"
+        stroke="#FFFFFF"
+        stroke-width="1.8"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      />
+      <!-- Inner keyhole accent indicating encrypted zero-knowledge vault -->
+      <circle cx="12" cy="11" r="1.75" fill="#FFFFFF" />
+      <path d="M12 12.75v3" stroke="#FFFFFF" stroke-width="1.5" stroke-linecap="round" />
+    </g>
+  </g>
+</svg>`;
+
+// Standard icon for Web / PWA
+const publicDir = path.resolve('public');
+fs.writeFileSync(path.join(publicDir, 'icon.svg'), svgContent);
+
+// Render PNGs using Resvg
+function renderPng(svg, width, height) {
+  const resvg = new Resvg(svg, {
+    fitTo: { mode: 'width', value: width },
+    shapeRendering: 2,
+    textRendering: 1,
+    imageRendering: 1,
+  });
+  return resvg.render().asPng();
+}
+
+console.log('Rendering crisp PNGs...');
+const png192 = renderPng(svgContent, 192, 192);
+fs.writeFileSync(path.join(publicDir, 'pwa-192x192.png'), png192);
+
+const png512 = renderPng(svgContent, 512, 512);
+fs.writeFileSync(path.join(publicDir, 'pwa-512x512.png'), png512);
+fs.writeFileSync(path.join(publicDir, 'pwa-maskable-512x512.png'), png512);
+fs.writeFileSync(path.join(publicDir, 'apple-touch-icon.png'), renderPng(svgContent, 180, 180));
+fs.writeFileSync(path.join(publicDir, 'favicon.png'), renderPng(svgContent, 64, 64));
+
+console.log('All icons generated successfully!');
