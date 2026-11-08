@@ -7,12 +7,14 @@ interface CameraModalProps {
   isOpen: boolean;
   onClose: () => void;
   onCapturePhoto: (attachment: NoteAttachment) => void;
+  targetTitle?: string | null;
 }
 
 export const CameraModal: React.FC<CameraModalProps> = ({
   isOpen,
   onClose,
   onCapturePhoto,
+  targetTitle,
 }) => {
   const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
   const [isStreaming, setIsStreaming] = useState(false);
@@ -67,9 +69,15 @@ export const CameraModal: React.FC<CameraModalProps> = ({
       streamRef.current = stream;
 
       if (videoRef.current) {
-        videoRef.current.srcObject = stream;
+        videoRef.current.muted = true;
         videoRef.current.setAttribute('playsinline', 'true');
-        await videoRef.current.play();
+        videoRef.current.setAttribute('webkit-playsinline', 'true');
+        videoRef.current.srcObject = stream;
+        try {
+          await videoRef.current.play();
+        } catch (playErr) {
+          console.warn('Video play error:', playErr);
+        }
         setIsStreaming(true);
       }
     } catch (err: unknown) {
@@ -80,9 +88,15 @@ export const CameraModal: React.FC<CameraModalProps> = ({
           const fallbackStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
           streamRef.current = fallbackStream;
           if (videoRef.current) {
-            videoRef.current.srcObject = fallbackStream;
+            videoRef.current.muted = true;
             videoRef.current.setAttribute('playsinline', 'true');
-            await videoRef.current.play();
+            videoRef.current.setAttribute('webkit-playsinline', 'true');
+            videoRef.current.srcObject = fallbackStream;
+            try {
+              await videoRef.current.play();
+            } catch {
+              // Ignore
+            }
             setIsStreaming(true);
             return;
           }
@@ -127,9 +141,11 @@ export const CameraModal: React.FC<CameraModalProps> = ({
     if (!video || !isStreaming) return;
 
     try {
-      let width = video.videoWidth || 1280;
-      let height = video.videoHeight || 720;
-      const maxDim = 1280;
+      const vw = video.videoWidth || 1280;
+      const vh = video.videoHeight || 960;
+      let width = vw;
+      let height = vh;
+      const maxDim = 1200;
 
       if (width > maxDim || height > maxDim) {
         if (width > height) {
@@ -150,15 +166,12 @@ export const CameraModal: React.FC<CameraModalProps> = ({
       // Draw video frame to canvas
       ctx.drawImage(video, 0, 0, width, height);
 
-      // Export as WebP or JPEG
+      // Export as high-efficiency JPEG
       let dataUrl = '';
       try {
-        dataUrl = canvas.toDataURL('image/webp', 0.82);
-        if (!dataUrl.startsWith('data:image/webp')) {
-          dataUrl = canvas.toDataURL('image/jpeg', 0.82);
-        }
+        dataUrl = canvas.toDataURL('image/jpeg', 0.80);
       } catch {
-        dataUrl = canvas.toDataURL('image/jpeg', 0.82);
+        dataUrl = canvas.toDataURL('image/jpeg');
       }
 
       const head = dataUrl.indexOf(',') + 1;
@@ -186,13 +199,17 @@ export const CameraModal: React.FC<CameraModalProps> = ({
     const now = Date.now();
     const timeStr = new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
 
+    const isWebP = capturedPreview.startsWith('data:image/webp');
+    const mimeType = isWebP ? 'image/webp' : 'image/jpeg';
+    const ext = isWebP ? 'webp' : 'jpg';
+
     onCapturePhoto({
       id: `img-${now}-${Math.random().toString(36).slice(2, 7)}`,
-      name: `Kamera-Foto ${timeStr}.webp`,
+      name: `Kamera-Foto ${timeStr}.${ext}`,
       type: 'image',
-      mimeType: 'image/webp',
+      mimeType,
       dataUrl: capturedPreview,
-      sizeBytes: capturedSize || 80000,
+      sizeBytes: capturedSize || Math.round((capturedPreview.length - (capturedPreview.indexOf(',') + 1)) * 0.75) || 80000,
       createdAt: now,
     });
     onClose();
@@ -207,7 +224,7 @@ export const CameraModal: React.FC<CameraModalProps> = ({
     setError(null);
 
     try {
-      const compressed = await compressImage(file, 1280, 0.82);
+      const compressed = await compressImage(file, 1200, 0.80);
       setCapturedPreview(compressed.dataUrl);
       setCapturedSize(compressed.sizeBytes);
       stopTracks();
@@ -239,8 +256,8 @@ export const CameraModal: React.FC<CameraModalProps> = ({
               <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
                 Kamera
               </h3>
-              <p className="text-3xs text-slate-500 dark:text-slate-400">
-                Live-Sucher · AES-256-GCM verschlüsselt
+              <p className="text-3xs text-slate-500 dark:text-slate-400 truncate max-w-[200px] sm:max-w-[240px]">
+                {targetTitle ? `Einfügen in: „${targetTitle}“` : 'Live-Sucher · AES-256-GCM verschlüsselt'}
               </p>
             </div>
           </div>

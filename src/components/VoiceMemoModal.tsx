@@ -7,12 +7,14 @@ interface VoiceMemoModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSaveAudioMemo: (attachment: NoteAttachment) => void;
+  targetTitle?: string | null;
 }
 
 export const VoiceMemoModal: React.FC<VoiceMemoModalProps> = ({
   isOpen,
   onClose,
   onSaveAudioMemo,
+  targetTitle,
 }) => {
   const [isRecording, setIsRecording] = useState(false);
   const [seconds, setSeconds] = useState(0);
@@ -236,8 +238,8 @@ export const VoiceMemoModal: React.FC<VoiceMemoModalProps> = ({
               <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
                 Sprachmemo aufnehmen
               </h3>
-              <p className="text-3xs text-slate-500 dark:text-slate-400">
-                AES-256-GCM verschlüsselt
+              <p className="text-3xs text-slate-500 dark:text-slate-400 truncate max-w-[200px] sm:max-w-[240px]">
+                {targetTitle ? `Einfügen in: „${targetTitle}“` : 'AES-256-GCM verschlüsselt'}
               </p>
             </div>
           </div>
@@ -352,7 +354,7 @@ export const VoiceMemoModal: React.FC<VoiceMemoModalProps> = ({
               className="w-full py-2.5 px-4 bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-98"
             >
               <CheckCircle2 className="w-4 h-4" />
-              <span>Als verschlüsselte Notiz speichern</span>
+              <span>{targetTitle ? 'In Notiz übernehmen' : 'Als verschlüsselte Notiz speichern'}</span>
             </button>
           ) : isRecording ? (
             <button

@@ -18,6 +18,9 @@ import {
   Share2,
   Image as ImageIcon,
   Music,
+  Camera,
+  Mic,
+  FolderOpen,
 } from 'lucide-react';
 import { DecryptedNote, NoteAttachment } from '../types';
 import { canNativeShare, shareNoteViaNative } from '../lib/platform';
@@ -31,6 +34,8 @@ interface NoteEditorProps {
   onTogglePin: (id: string) => void;
   onNewNote: () => void;
   onBackToList?: () => void;
+  onStartCamera?: () => void;
+  onStartVoiceMemo?: () => void;
 }
 
 export const NoteEditor: React.FC<NoteEditorProps> = ({
@@ -40,6 +45,8 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
   onTogglePin,
   onNewNote,
   onBackToList,
+  onStartCamera,
+  onStartVoiceMemo,
 }) => {
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
@@ -49,24 +56,65 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
   const [newTagInput, setNewTagInput] = useState('');
   const [showTagInput, setShowTagInput] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [showImageMenu, setShowImageMenu] = useState(false);
+  const [showAudioMenu, setShowAudioMenu] = useState(false);
   const [previewMode, setPreviewMode] = useState(false);
   const [copyFeedback, setCopyFeedback] = useState(false);
   const [isProcessingMedia, setIsProcessingMedia] = useState(false);
 
   const imageInputRef = useRef<HTMLInputElement>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
+  const prevNoteIdRef = useRef<string | null>(null);
+  const datePickerRef = useRef<HTMLDivElement>(null);
+  const imageMenuRef = useRef<HTMLDivElement>(null);
+  const audioMenuRef = useRef<HTMLDivElement>(null);
 
-  // Sync internal state when active note changes
+  // Close menus on click outside
+  useEffect(() => {
+    if (!showDatePicker && !showImageMenu && !showAudioMenu) return;
+
+    const handleClickOutside = (e: MouseEvent | TouchEvent) => {
+      const target = e.target as Node;
+      if (showDatePicker && datePickerRef.current && !datePickerRef.current.contains(target)) {
+        setShowDatePicker(false);
+      }
+      if (showImageMenu && imageMenuRef.current && !imageMenuRef.current.contains(target)) {
+        setShowImageMenu(false);
+      }
+      if (showAudioMenu && audioMenuRef.current && !audioMenuRef.current.contains(target)) {
+        setShowAudioMenu(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('touchstart', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('touchstart', handleClickOutside);
+    };
+  }, [showDatePicker, showImageMenu, showAudioMenu]);
+
+  // Sync internal state when active note changes or attachments/tags are updated externally
   useEffect(() => {
     if (note) {
-      setTitle(note.title);
-      setContent(note.content);
-      setDeadline(note.deadline);
-      setTags(note.tags || []);
-      setAttachments(note.attachments || []);
-      setPreviewMode(false);
+      if (prevNoteIdRef.current !== note.id) {
+        prevNoteIdRef.current = note.id;
+        setTitle(note.title);
+        setContent(note.content);
+        setDeadline(note.deadline);
+        setTags(note.tags || []);
+        setAttachments(note.attachments || []);
+        setPreviewMode(false);
+      } else {
+        // Same note ID, keep attachments and metadata strictly synchronized
+        setAttachments(note.attachments || []);
+        setTags(note.tags || []);
+        setDeadline(note.deadline);
+      }
+    } else {
+      prevNoteIdRef.current = null;
     }
-  }, [note?.id]);
+  }, [note?.id, note?.updatedAt, note?.attachments]);
 
   const handleAddAttachment = (newAtt: NoteAttachment) => {
     const updated = [...attachments, newAtt];
@@ -322,22 +370,47 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
 
   if (!note) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center p-8 text-center bg-white dark:bg-slate-900">
-        <div className="w-14 h-14 rounded-2xl bg-teal-500/10 dark:bg-teal-400/10 border border-teal-500/20 flex items-center justify-center text-teal-600 dark:text-teal-400 mb-4 shadow-inner">
-          <FileText className="w-7 h-7" />
+      <div className="flex-1 flex flex-col h-full bg-white dark:bg-slate-900">
+        {/* Mobile top bar to navigate back to list */}
+        {onBackToList && (
+          <div className="md:hidden flex items-center px-4 py-2.5 border-b border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/70 shrink-0">
+            <button
+              onClick={onBackToList}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-teal-700 dark:text-teal-300 bg-teal-500/10 hover:bg-teal-500/20 rounded-lg transition-colors cursor-pointer"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              <span>Zurück zur Notizenliste</span>
+            </button>
+          </div>
+        )}
+
+        <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
+          <div className="w-14 h-14 rounded-2xl bg-teal-500/10 dark:bg-teal-400/10 border border-teal-500/20 flex items-center justify-center text-teal-600 dark:text-teal-400 mb-4 shadow-inner">
+            <FileText className="w-7 h-7" />
+          </div>
+          <h3 className="text-base font-bold text-slate-800 dark:text-slate-200">
+            Keine Notiz ausgewählt
+          </h3>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-sm">
+            Wählen Sie eine Notiz aus der Liste aus oder erfassen Sie neue Inhalte per Tastatur, Zwischenablage oder Kamera.
+          </p>
+          <div className="mt-5 flex items-center gap-2.5 flex-wrap justify-center">
+            {onBackToList && (
+              <button
+                onClick={onBackToList}
+                className="px-4 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold rounded-lg transition-all cursor-pointer"
+              >
+                Zurück zur Liste
+              </button>
+            )}
+            <button
+              onClick={onNewNote}
+              className="px-4 py-2 bg-teal-600 hover:bg-teal-500 text-white text-xs font-semibold rounded-lg shadow-sm transition-all cursor-pointer"
+            >
+              Neue Notiz erstellen
+            </button>
+          </div>
         </div>
-        <h3 className="text-base font-bold text-slate-800 dark:text-slate-200">
-          Keine Notiz ausgewählt
-        </h3>
-        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-sm">
-          Wählen Sie eine Notiz aus der linken Spalte aus oder erfassen Sie neue Inhalte per Tastatur und Zwischenablage.
-        </p>
-        <button
-          onClick={onNewNote}
-          className="mt-5 px-4 py-2 bg-teal-600 hover:bg-teal-500 text-white text-xs font-semibold rounded-lg shadow-sm transition-all cursor-pointer"
-        >
-          Neue Notiz erstellen
-        </button>
       </div>
     );
   }
@@ -354,10 +427,10 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
 
   return (
     <div className="flex-1 flex flex-col h-full bg-white dark:bg-slate-900 overflow-hidden">
-      {/* Top Toolbar */}
-      <div className="flex items-center justify-between gap-3 px-3 sm:px-6 py-2.5 sm:py-3 border-b border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xs">
-        {/* Left: Mobile Back Button + Tags and Source info */}
-        <div className="flex items-center gap-2 flex-wrap min-w-0">
+      {/* Top Toolbar: stacked vertically on mobile, side-by-side on desktop */}
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2.5 sm:gap-3 px-3 sm:px-6 py-2 sm:py-3 border-b border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xs shrink-0">
+        {/* Row 1 on mobile, Left on desktop: Back Button + Pin + Tags */}
+        <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap min-w-0 w-full md:w-auto">
           {onBackToList && (
             <button
               onClick={onBackToList}
@@ -432,10 +505,10 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
           )}
         </div>
 
-        {/* Right Toolbar Actions */}
-        <div className="flex items-center gap-1.5 shrink-0">
+        {/* Row 2 on mobile, Right on desktop: Action Buttons Toolbar */}
+        <div className="flex items-center gap-1.5 flex-wrap min-w-0 w-full md:w-auto justify-start md:justify-end pt-1 md:pt-0">
           {/* Deadline Trigger */}
-          <div className="relative">
+          <div ref={datePickerRef} className="relative">
             <button
               onClick={() => setShowDatePicker(!showDatePicker)}
               className={`flex items-center gap-1 px-2.5 py-1 text-xs rounded-md border transition-colors cursor-pointer ${
@@ -455,7 +528,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
 
             {/* Datepicker Popover */}
             {showDatePicker && (
-              <div className="absolute right-0 top-full mt-2 w-72 p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl z-40 space-y-3">
+              <div className="absolute left-0 md:left-auto md:right-0 top-full mt-2 w-72 max-w-[calc(100vw-2rem)] p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl z-40 space-y-3">
                 <div className="flex items-center justify-between text-xs font-semibold text-slate-900 dark:text-slate-100">
                   <span>Fälligkeitsdatum setzen</span>
                   {deadline && (
@@ -539,23 +612,87 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
             onChange={handleAudioSelect}
           />
 
-          {/* Add Image Button */}
-          <button
-            onClick={() => imageInputRef.current?.click()}
-            className="p-1.5 text-xs rounded-md border border-slate-200 dark:border-slate-800 text-slate-500 hover:text-teal-600 dark:hover:text-teal-400 hover:bg-teal-50/50 dark:hover:bg-teal-950/40 transition-colors cursor-pointer"
-            title="Bild einfügen oder Foto aufnehmen"
-          >
-            <ImageIcon className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />
-          </button>
+          {/* Add Image Button with options */}
+          <div ref={imageMenuRef} className="relative">
+            <button
+              onClick={() => {
+                setShowImageMenu(!showImageMenu);
+                setShowAudioMenu(false);
+              }}
+              className="p-1.5 text-xs rounded-md border border-slate-200 dark:border-slate-800 text-slate-500 hover:text-teal-600 dark:hover:text-teal-400 hover:bg-teal-50/50 dark:hover:bg-teal-950/40 transition-colors cursor-pointer"
+              title="Foto mit Kamera aufnehmen oder Bild einfügen"
+            >
+              <ImageIcon className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />
+            </button>
 
-          {/* Audio File Button */}
-          <button
-            onClick={() => audioInputRef.current?.click()}
-            className="p-1.5 text-xs rounded-md border border-slate-200 dark:border-slate-800 text-slate-500 hover:text-rose-500 hover:bg-rose-50/50 dark:hover:bg-rose-950/40 hover:border-rose-500/30 transition-colors cursor-pointer"
-            title="Audiodatei anhängen"
-          >
-            <Music className="w-3.5 h-3.5 text-rose-500" />
-          </button>
+            {showImageMenu && (
+              <div className="absolute left-0 md:left-auto md:right-0 top-full mt-2 w-48 p-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl z-40 space-y-1">
+                {onStartCamera && (
+                  <button
+                    onClick={() => {
+                      setShowImageMenu(false);
+                      onStartCamera();
+                    }}
+                    className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-left rounded-lg text-slate-700 dark:text-slate-200 hover:bg-teal-500/10 hover:text-teal-600 dark:hover:text-teal-400 transition-colors cursor-pointer"
+                  >
+                    <Camera className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400 shrink-0" />
+                    <span>Kamera öffnen</span>
+                  </button>
+                )}
+                <button
+                  onClick={() => {
+                    setShowImageMenu(false);
+                    imageInputRef.current?.click();
+                  }}
+                  className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-left rounded-lg text-slate-700 dark:text-slate-200 hover:bg-teal-500/10 hover:text-teal-600 dark:hover:text-teal-400 transition-colors cursor-pointer"
+                >
+                  <FolderOpen className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                  <span>Aus Galerie / Dateien</span>
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Audio Button with options */}
+          <div ref={audioMenuRef} className="relative">
+            <button
+              onClick={() => {
+                setShowAudioMenu(!showAudioMenu);
+                setShowImageMenu(false);
+              }}
+              className="p-1.5 text-xs rounded-md border border-slate-200 dark:border-slate-800 text-slate-500 hover:text-rose-500 hover:bg-rose-50/50 dark:hover:bg-rose-950/40 hover:border-rose-500/30 transition-colors cursor-pointer"
+              title="Sprachmemo aufnehmen oder Audiodatei anhängen"
+            >
+              <Music className="w-3.5 h-3.5 text-rose-500" />
+            </button>
+
+            {showAudioMenu && (
+              <div className="absolute left-0 md:left-auto md:right-0 top-full mt-2 w-48 p-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl z-40 space-y-1">
+                {onStartVoiceMemo && (
+                  <button
+                    onClick={() => {
+                      setShowAudioMenu(false);
+                      onStartVoiceMemo();
+                    }}
+                    className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-left rounded-lg text-slate-700 dark:text-slate-200 hover:bg-rose-500/10 hover:text-rose-600 dark:hover:text-rose-400 transition-colors cursor-pointer"
+                  >
+                    <Mic className="w-3.5 h-3.5 text-rose-500 shrink-0" />
+                    <span>Sprachmemo aufnehmen</span>
+                  </button>
+                )}
+                <button
+                  onClick={() => {
+                    setShowAudioMenu(false);
+                    audioInputRef.current?.click();
+                  }}
+                  className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-left rounded-lg text-slate-700 dark:text-slate-200 hover:bg-rose-500/10 hover:text-rose-600 dark:hover:text-rose-400 transition-colors cursor-pointer"
+                >
+                  <FolderOpen className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                  <span>Audiodatei wählen</span>
+                </button>
+              </div>
+            )}
+          </div>
 
           {/* Preview / Edit Toggle */}
           <button
@@ -702,16 +839,16 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
       </div>
 
       {/* Footer Info Bar */}
-      <div className="flex items-center justify-between px-6 py-2.5 border-t border-slate-200 dark:border-slate-800 text-2xs text-slate-500 dark:text-slate-400 bg-slate-50/50 dark:bg-slate-950/40">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-1 sm:gap-2 px-3 sm:px-6 py-1.5 sm:py-2 border-t border-slate-200 dark:border-slate-800 text-[10px] sm:text-xs text-slate-500 dark:text-slate-400 bg-slate-50/50 dark:bg-slate-950/40 shrink-0">
+        <div className="flex items-center gap-2 sm:gap-3 text-[10px] sm:text-xs">
           <span className="font-mono tabular-nums">{charCount} Zeichen</span>
-          <span aria-hidden="true">·</span>
+          <span aria-hidden="true" className="opacity-50">·</span>
           <span className="font-mono tabular-nums">{wordCount} Wörter</span>
-          <span aria-hidden="true">·</span>
+          <span aria-hidden="true" className="opacity-50">·</span>
           <span className="font-mono tabular-nums">{lineCount} Zeilen</span>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 sm:gap-2 text-[10px] sm:text-xs">
           <span>
             Zuletzt gespeichert:{' '}
             <span className="font-mono tabular-nums">
@@ -721,7 +858,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
               })}
             </span>
           </span>
-          <span aria-hidden="true">·</span>
+          <span aria-hidden="true" className="opacity-50">·</span>
           <span className="text-teal-600 dark:text-teal-400">
             {note.source === 'clipboard' ? 'Aus Zwischenablage' : 'Manuell verfasst'}
           </span>

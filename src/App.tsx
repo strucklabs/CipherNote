@@ -48,6 +48,12 @@ export default function App() {
   const [isVoiceMemoOpen, setIsVoiceMemoOpen] = useState(false);
   const [voiceMemoTarget, setVoiceMemoTarget] = useState<'new' | 'current'>('new');
   const [isCameraOpen, setIsCameraOpen] = useState(false);
+  const [cameraTarget, setCameraTarget] = useState<'new' | 'current'>('new');
+
+  const handleOpenCamera = (target: 'new' | 'current' = 'new') => {
+    setCameraTarget(target);
+    setIsCameraOpen(true);
+  };
 
   // UI state
   const [searchQuery, setSearchQuery] = useState('');
@@ -67,19 +73,36 @@ export default function App() {
   const DEFAULT_PASSPHRASE = 'Cipher2026!';
   const notesRef = useRef<DecryptedNote[]>([]);
   notesRef.current = decryptedNotes;
+  const hasInitializedRef = useRef(false);
 
-  // Decrypt notes whenever vaultKey is unlocked or encryptedNotes updates
+  // Decrypt notes whenever vaultKey is unlocked or encryptedNotes updates (stable callback, zero deps)
   const refreshDecryptedNotes = useCallback(async (records: EncryptedNoteRecord[], key: CryptoKey) => {
     try {
       const decrypted = await decryptAllNotes(records, key);
-      setDecryptedNotes(decrypted);
-      if (decrypted.length > 0 && !selectedNoteId) {
-        setSelectedNoteId(decrypted[0].id);
-      }
+      setDecryptedNotes((prevNotes) => {
+        // Merge notes so in-memory unsaved or newly captured notes are NEVER clobbered by older storage records
+        const map = new Map<string, DecryptedNote>();
+        decrypted.forEach((n) => map.set(n.id, n));
+        prevNotes.forEach((p) => {
+          const stored = map.get(p.id);
+          if (!stored || p.updatedAt > stored.updatedAt) {
+            map.set(p.id, p);
+          }
+        });
+        return Array.from(map.values()).sort((a, b) => {
+          if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1;
+          return b.updatedAt - a.updatedAt;
+        });
+      });
+
+      setSelectedNoteId((prevId) => {
+        if (prevId) return prevId;
+        return decrypted[0]?.id || null;
+      });
     } catch (err) {
       console.error('Decryption refresh error:', err);
     }
-  }, [selectedNoteId]);
+  }, []);
 
   // Setup vault with new master passphrase
   const handleSetupVault = useCallback(async (passphrase: string) => {
@@ -101,8 +124,11 @@ export default function App() {
     }
   }, []);
 
-  // Initialize vault config on initial load and auto-unlock or auto-initialize
+  // Initialize vault config on initial load and auto-unlock or auto-initialize (runs once on mount)
   useEffect(() => {
+    if (hasInitializedRef.current) return;
+    hasInitializedRef.current = true;
+
     const config = getVaultConfig();
     const stored = getEncryptedNotes();
     setEncryptedNotes(stored);
@@ -224,24 +250,23 @@ export default function App() {
   const saveAndSyncNote = async (updatedNote: DecryptedNote) => {
     if (!vaultKey || !vaultConfig) return;
 
-    // Update decrypted list in state
-    const existingIndex = decryptedNotes.findIndex((n) => n.id === updatedNote.id);
-    let newDecryptedList: DecryptedNote[];
+    // Update decrypted list in state using functional updater
+    setDecryptedNotes((prev) => {
+      const existingIndex = prev.findIndex((n) => n.id === updatedNote.id);
+      let newDecryptedList: DecryptedNote[];
 
-    if (existingIndex >= 0) {
-      newDecryptedList = [...decryptedNotes];
-      newDecryptedList[existingIndex] = updatedNote;
-    } else {
-      newDecryptedList = [updatedNote, ...decryptedNotes];
-    }
+      if (existingIndex >= 0) {
+        newDecryptedList = [...prev];
+        newDecryptedList[existingIndex] = updatedNote;
+      } else {
+        newDecryptedList = [updatedNote, ...prev];
+      }
 
-    // Sort: Pinned first, then newest
-    newDecryptedList.sort((a, b) => {
-      if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1;
-      return b.updatedAt - a.updatedAt;
+      return newDecryptedList.sort((a, b) => {
+        if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1;
+        return b.updatedAt - a.updatedAt;
+      });
     });
-
-    setDecryptedNotes(newDecryptedList);
 
     // Encrypt and save
     try {
@@ -312,14 +337,19 @@ export default function App() {
         const updatedTags = active.tags?.includes('Sprachmemo')
           ? active.tags
           : [...(active.tags || []), 'Sprachmemo'];
-        saveAndSyncNote({
+        const updatedNote: DecryptedNote = {
           ...active,
           attachments: updatedAttachments,
           tags: updatedTags,
           updatedAt: now,
-        });
+        };
+
+        setDecryptedNotes((prev) =>
+          prev.map((n) => (n.id === updatedNote.id ? updatedNote : n))
+        );
         setIsVoiceMemoOpen(false);
         playClipboardChime();
+        saveAndSyncNote(updatedNote);
         return;
       }
     }
@@ -338,11 +368,15 @@ export default function App() {
       attachments: [attachment],
     };
 
-    saveAndSyncNote(newNote);
+    // Synchronously insert new note and select it to guarantee NoteEditor receives it immediately
+    setDecryptedNotes((prev) => [newNote, ...prev.filter((n) => n.id !== newNote.id)]);
     setSelectedNoteId(newNote.id);
     setMobileView('editor');
     setIsVoiceMemoOpen(false);
     playClipboardChime();
+
+    // Persist encrypted note in background
+    saveAndSyncNote(newNote);
   };
 
   // Capture clipboard text
@@ -491,10 +525,13 @@ export default function App() {
           attachments: [attachment],
         };
 
-        await saveAndSyncNote(newNote);
+        // Synchronously update state so NoteEditor has it immediately
+        setDecryptedNotes((prev) => [newNote, ...prev.filter((n) => n.id !== newNote.id)]);
         setSelectedNoteId(newNote.id);
         setMobileView('editor');
         playClipboardChime();
+
+        saveAndSyncNote(newNote);
       } catch (err) {
         console.error('Failed to capture media file:', err);
       }
@@ -506,16 +543,40 @@ export default function App() {
   const handleSavePhotoFromCamera = (attachment: NoteAttachment) => {
     if (!vaultKey || !vaultConfig) return;
     const now = Date.now();
-    const dateStr = new Date().toLocaleDateString('de-DE', {
-      day: '2-digit',
-      month: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
+    const d = new Date();
+    const dateStr = `${d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })} um ${d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}`;
 
+    // Target 1: Add to current note if requested and active note exists
+    if (cameraTarget === 'current' && selectedNoteId) {
+      const active = decryptedNotes.find((n) => n.id === selectedNoteId);
+      if (active) {
+        const updatedAttachments = [...(active.attachments || []), attachment];
+        const updatedTags = active.tags?.includes('Foto')
+          ? active.tags
+          : [...(active.tags || []), 'Foto'];
+        const updatedNote: DecryptedNote = {
+          ...active,
+          attachments: updatedAttachments,
+          tags: updatedTags,
+          updatedAt: now,
+        };
+
+        setDecryptedNotes((prev) =>
+          prev.map((n) => (n.id === updatedNote.id ? updatedNote : n))
+        );
+        setIsCameraOpen(false);
+        setMobileView('editor');
+        playClipboardChime();
+
+        saveAndSyncNote(updatedNote);
+        return;
+      }
+    }
+
+    // Target 2: Create a brand new note containing the captured photo
     const newNote: DecryptedNote = {
       id: `media-${now}-${Math.random().toString(36).slice(2, 7)}`,
-      title: `Foto ${dateStr}`,
+      title: `Foto vom ${dateStr}`,
       content: '',
       tags: ['Foto', 'Kamera'],
       isPinned: false,
@@ -526,11 +587,15 @@ export default function App() {
       attachments: [attachment],
     };
 
-    saveAndSyncNote(newNote);
+    // Synchronously insert new note and select it to guarantee NoteEditor receives it immediately
+    setDecryptedNotes((prev) => [newNote, ...prev.filter((n) => n.id !== newNote.id)]);
     setSelectedNoteId(newNote.id);
     setMobileView('editor');
     setIsCameraOpen(false);
     playClipboardChime();
+
+    // Persist encrypted note in background
+    saveAndSyncNote(newNote);
   };
 
   // Global window paste handler: capture clipboard (text or images) when user is not typing in a text field
@@ -708,7 +773,7 @@ export default function App() {
               onCapture={handleCaptureClipboardText}
               onCaptureMedia={handleCaptureMediaFile}
               onStartVoiceMemo={() => handleOpenVoiceMemo('new')}
-              onStartCamera={() => setIsCameraOpen(true)}
+              onStartCamera={() => handleOpenCamera('new')}
             />
           </div>
 
@@ -747,6 +812,8 @@ export default function App() {
             onBackToList={() => {
               setMobileView('list');
             }}
+            onStartCamera={() => handleOpenCamera('current')}
+            onStartVoiceMemo={() => handleOpenVoiceMemo('current')}
           />
         </main>
       </div>
@@ -844,6 +911,7 @@ export default function App() {
         isOpen={isVoiceMemoOpen}
         onClose={() => setIsVoiceMemoOpen(false)}
         onSaveAudioMemo={handleSaveVoiceMemoFromModal}
+        targetTitle={voiceMemoTarget === 'current' ? selectedNote?.title : null}
       />
 
       {/* Live Camera Viewfinder Modal */}
@@ -851,6 +919,7 @@ export default function App() {
         isOpen={isCameraOpen}
         onClose={() => setIsCameraOpen(false)}
         onCapturePhoto={handleSavePhotoFromCamera}
+        targetTitle={cameraTarget === 'current' ? selectedNote?.title : null}
       />
     </div>
   );

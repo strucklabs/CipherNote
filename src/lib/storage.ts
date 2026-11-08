@@ -46,7 +46,18 @@ export function getEncryptedNotes(): EncryptedNoteRecord[] {
 }
 
 export function saveEncryptedNotes(notes: EncryptedNoteRecord[]) {
-  localStorage.setItem(STORAGE_NOTES_KEY, JSON.stringify(notes));
+  try {
+    localStorage.setItem(STORAGE_NOTES_KEY, JSON.stringify(notes));
+  } catch (err) {
+    console.warn('localStorage quota warning while saving notes:', err);
+    try {
+      localStorage.removeItem('cipher_pending_share');
+      localStorage.setItem(STORAGE_NOTES_KEY, JSON.stringify(notes));
+    } catch (retryErr) {
+      console.error('Critical storage limit reached in localStorage:', retryErr);
+    }
+  }
+
   // Broadcast update to other tabs/windows for live sync
   try {
     localStorage.setItem(STORAGE_SYNC_KEY, String(Date.now()));

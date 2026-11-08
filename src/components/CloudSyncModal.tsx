@@ -54,9 +54,12 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
 
-  // Determine current origin (default to live running dev instance)
+  // Determine current origin and environment
   const currentOrigin = typeof window !== 'undefined' ? window.location.origin : DEV_APP_URL;
-  const appUrl = urlMode === 'current' ? currentOrigin : SHARED_APP_URL;
+  const isAiStudio = typeof window !== 'undefined' && window.location.hostname.includes('europe-west3.run.app');
+  const isLocalhost = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+  
+  const appUrl = (isAiStudio && urlMode === 'share') ? SHARED_APP_URL : currentOrigin;
 
   // Instant synchronous SVG generation without promises or canvas delays
   const qrSvg = useMemo(() => generateQRCodeSVG(appUrl, 3), [appUrl]);
@@ -208,31 +211,33 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({
               </span>
             </div>
 
-            {/* URL Mode Switcher Tabs */}
-            <div className="flex rounded-lg bg-slate-200/70 dark:bg-slate-800 p-0.5 text-2xs font-medium">
-              <button
-                type="button"
-                onClick={() => setUrlMode('current')}
-                className={`flex-1 py-1.5 px-2 rounded-md transition-all cursor-pointer ${
-                  urlMode === 'current'
-                    ? 'bg-white dark:bg-slate-700 text-teal-700 dark:text-teal-300 shadow-xs font-semibold'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
-                }`}
-              >
-                1. Aktuelle Live-Instanz (ais-dev)
-              </button>
-              <button
-                type="button"
-                onClick={() => setUrlMode('share')}
-                className={`flex-1 py-1.5 px-2 rounded-md transition-all cursor-pointer ${
-                  urlMode === 'share'
-                    ? 'bg-white dark:bg-slate-700 text-teal-700 dark:text-teal-300 shadow-xs font-semibold'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
-                }`}
-              >
-                2. Freigabe-Link (ais-pre)
-              </button>
-            </div>
+            {/* URL Mode Switcher Tabs (Only relevant in AI Studio) */}
+            {isAiStudio && (
+              <div className="flex rounded-lg bg-slate-200/70 dark:bg-slate-800 p-0.5 text-2xs font-medium">
+                <button
+                  type="button"
+                  onClick={() => setUrlMode('current')}
+                  className={`flex-1 py-1.5 px-2 rounded-md transition-all cursor-pointer ${
+                    urlMode === 'current'
+                      ? 'bg-white dark:bg-slate-700 text-teal-700 dark:text-teal-300 shadow-xs font-semibold'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                  }`}
+                >
+                  1. Aktuelle Live-Instanz (ais-dev)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setUrlMode('share')}
+                  className={`flex-1 py-1.5 px-2 rounded-md transition-all cursor-pointer ${
+                    urlMode === 'share'
+                      ? 'bg-white dark:bg-slate-700 text-teal-700 dark:text-teal-300 shadow-xs font-semibold'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                  }`}
+                >
+                  2. Freigabe-Link (ais-pre)
+                </button>
+              </div>
+            )}
 
             <div className="flex flex-col sm:flex-row items-center gap-4">
               {/* Scannable QR Code */}
@@ -249,22 +254,30 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({
               <div className="space-y-2.5 flex-1 text-xs">
                 <div className="p-2 bg-white/80 dark:bg-slate-900/80 border border-teal-200/50 dark:border-teal-800/50 rounded-lg space-y-1">
                   <p className="text-2xs font-semibold text-teal-900 dark:text-teal-200">
-                    {urlMode === 'current' ? 'Aktuelle Entwicklungs-URL:' : 'Öffentliche Freigabe-URL:'}
+                    {isAiStudio
+                      ? (urlMode === 'current' ? 'Aktuelle Entwicklungs-URL:' : 'Öffentliche Freigabe-URL:')
+                      : 'Anwendungs-URL für Mobilgeräte:'}
                   </p>
                   <code className="text-[11px] font-mono text-slate-700 dark:text-slate-300 break-all block select-all">
                     {appUrl}
                   </code>
                 </div>
 
-                {urlMode === 'current' ? (
+                {isAiStudio ? (
+                  urlMode === 'current' ? (
+                    <div className="p-2 rounded bg-amber-500/10 border border-amber-500/20 text-2xs text-amber-900 dark:text-amber-200 leading-relaxed">
+                      <strong>Wichtig für die Live-Instanz:</strong> Ihr Handy-Browser muss mit demselben Google-Konto wie AI Studio angemeldet sein.
+                    </div>
+                  ) : (
+                    <div className="p-2 rounded bg-blue-500/10 border border-blue-500/20 text-2xs text-blue-900 dark:text-blue-200 leading-relaxed">
+                      <strong>Wichtig für den Freigabe-Link:</strong> Wird aktiv, sobald Sie oben rechts in AI Studio auf <strong>„Share“ (Teilen)</strong> geklickt haben.
+                    </div>
+                  )
+                ) : isLocalhost ? (
                   <div className="p-2 rounded bg-amber-500/10 border border-amber-500/20 text-2xs text-amber-900 dark:text-amber-200 leading-relaxed">
-                    <strong>Wichtig für die Live-Instanz:</strong> Ihr Handy-Browser muss mit demselben Google-Konto wie AI Studio angemeldet sein.
+                    <strong>Hinweis zu localhost:</strong> Damit Ihr Handy den Server im selben WLAN erreicht, rufen Sie die App am PC über Ihre Netzwerk-IP auf (z. B. <code>http://192.168.x.x:3000</code>).
                   </div>
-                ) : (
-                  <div className="p-2 rounded bg-blue-500/10 border border-blue-500/20 text-2xs text-blue-900 dark:text-blue-200 leading-relaxed">
-                    <strong>Wichtig für den Freigabe-Link:</strong> Wird aktiv, sobald Sie oben rechts in AI Studio auf <strong>„Share“ (Teilen)</strong> geklickt haben.
-                  </div>
-                )}
+                ) : null}
 
                 <p className="text-2xs text-slate-600 dark:text-slate-300 leading-relaxed">
                   1. Link auf dem Handy öffnen.<br />
