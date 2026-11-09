@@ -25,13 +25,21 @@ export function getVaultConfig(): VaultConfig | null {
 }
 
 export function saveVaultConfig(config: VaultConfig) {
-  localStorage.setItem(STORAGE_VAULT_KEY, JSON.stringify(config));
+  try {
+    localStorage.setItem(STORAGE_VAULT_KEY, JSON.stringify(config));
+  } catch (err) {
+    console.warn('Could not save vault config to localStorage:', err);
+  }
 }
 
 export function resetVault() {
-  localStorage.removeItem(STORAGE_VAULT_KEY);
-  localStorage.removeItem(STORAGE_NOTES_KEY);
-  localStorage.removeItem(STORAGE_SYNC_KEY);
+  try {
+    localStorage.removeItem(STORAGE_VAULT_KEY);
+    localStorage.removeItem(STORAGE_NOTES_KEY);
+    localStorage.removeItem(STORAGE_SYNC_KEY);
+  } catch (err) {
+    console.warn('Could not clear vault storage:', err);
+  }
 }
 
 export function getEncryptedNotes(): EncryptedNoteRecord[] {
@@ -84,20 +92,55 @@ export async function initializeNewVault(passphrase: string): Promise<{ key: Cry
 }
 
 export async function unlockVaultWithPassphrase(passphrase: string): Promise<CryptoKey | null> {
-  const config = getVaultConfig();
-  if (!config) return null;
+  try {
+    const config = getVaultConfig();
+    if (!config) return null;
 
-  const saltBytes = base64ToBuffer(config.salt);
-  const key = await deriveKey(passphrase, saltBytes);
-  const isValid = await verifyVaultKey(key, config.verificationCiphertext, config.verificationIv);
+    const saltBytes = base64ToBuffer(config.salt);
+    const key = await deriveKey(passphrase, saltBytes);
+    const isValid = await verifyVaultKey(key, config.verificationCiphertext, config.verificationIv);
 
-  if (!isValid) {
+    if (!isValid) {
+      return null;
+    }
+
+    config.lastUnlockedAt = Date.now();
+    saveVaultConfig(config);
+    return key;
+  } catch (err) {
+    console.warn('unlockVaultWithPassphrase failed:', err);
     return null;
   }
+}
 
-  config.lastUnlockedAt = Date.now();
-  saveVaultConfig(config);
-  return key;
+export async function reEncryptVaultWithNewPassphrase(
+  newPassphrase: string,
+  currentNotes: DecryptedNote[]
+): Promise<{ key: CryptoKey; config: VaultConfig }> {
+  const newSalt = generateRandomSalt(16);
+  const newKey = await deriveKey(newPassphrase, newSalt);
+  const verification = await createVaultVerification(newKey);
+  const saltBase64 = bufferToBase64(newSalt);
+
+  const newConfig: VaultConfig = {
+    salt: saltBase64,
+    verificationCiphertext: verification.ciphertext,
+    verificationIv: verification.iv,
+    createdAt: Date.now(),
+    lastUnlockedAt: Date.now(),
+  };
+
+  // Re-encrypt all existing notes with the new key and salt
+  const reEncryptedRecords: EncryptedNoteRecord[] = [];
+  for (const note of currentNotes) {
+    const enc = await encryptNotePayload(note, newKey, saltBase64);
+    reEncryptedRecords.push(enc);
+  }
+
+  saveVaultConfig(newConfig);
+  saveEncryptedNotes(reEncryptedRecords);
+
+  return { key: newKey, config: newConfig };
 }
 
 export async function decryptAllNotes(

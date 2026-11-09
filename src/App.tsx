@@ -14,6 +14,7 @@ import {
   saveEncryptedNotes,
   initializeNewVault,
   unlockVaultWithPassphrase,
+  reEncryptVaultWithNewPassphrase,
   decryptAllNotes,
   encryptNotePayload,
   seedInitialSampleNotes,
@@ -21,6 +22,7 @@ import {
 } from './lib/storage';
 import { TopBar } from './components/TopBar';
 import { VaultLockModal } from './components/VaultLockModal';
+import { VaultSecurityModal } from './components/VaultSecurityModal';
 import { NotesSidebar } from './components/NotesSidebar';
 import { NoteEditor } from './components/NoteEditor';
 import { ClipboardDropzone } from './components/ClipboardDropzone';
@@ -30,10 +32,22 @@ import { DeleteConfirmModal } from './components/DeleteConfirmModal';
 import { ShareReceiveModal } from './components/ShareReceiveModal';
 import { VoiceMemoModal } from './components/VoiceMemoModal';
 import { CameraModal } from './components/CameraModal';
+import { PWAInstallModal } from './components/PWAInstallModal';
+import { usePWAInstall } from './hooks/usePWAInstall';
 import { playClipboardChime } from './lib/sound';
 import { FileText, Pin, Calendar, Clipboard, Plus } from 'lucide-react';
 
 export default function App() {
+  // PWA install state & guide
+  const {
+    isInstallable,
+    isIOS,
+    install,
+    hasNativePrompt,
+    showInstallGuide,
+    setShowInstallGuide,
+  } = usePWAInstall();
+
   // Vault & Encryption state (held only in volatile memory)
   const [vaultConfig, setVaultConfig] = useState<VaultConfig | null>(null);
   const [vaultKey, setVaultKey] = useState<CryptoKey | null>(null);
@@ -68,6 +82,8 @@ export default function App() {
   });
   const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
   const [isShareReceiveOpen, setIsShareReceiveOpen] = useState(false);
+  const [isSecurityModalOpen, setIsSecurityModalOpen] = useState(false);
+  const [isUsingDefaultPassword, setIsUsingDefaultPassword] = useState<boolean>(true);
   const [syncState, setSyncState] = useState<SyncState>('synced');
 
   const DEFAULT_PASSPHRASE = 'Cipher2026!';
@@ -106,9 +122,12 @@ export default function App() {
 
   // Setup vault with new master passphrase
   const handleSetupVault = useCallback(async (passphrase: string) => {
-    const { key, config } = await initializeNewVault(passphrase);
+    const cleanPass = passphrase.trim();
+    const { key, config } = await initializeNewVault(cleanPass);
     if (typeof window !== 'undefined') {
-      sessionStorage.setItem('cipher_session_pass', passphrase);
+      try {
+        sessionStorage.setItem('cipher_session_pass', cleanPass);
+      } catch {}
     }
     setVaultKey(key);
     setVaultConfig(config);
@@ -119,6 +138,7 @@ export default function App() {
     const updatedEncrypted = getEncryptedNotes();
     setEncryptedNotes(updatedEncrypted);
     setDecryptedNotes(seededNotes);
+    setIsUsingDefaultPassword(cleanPass === DEFAULT_PASSPHRASE);
     if (seededNotes.length > 0) {
       setSelectedNoteId(seededNotes[0].id);
     }
@@ -129,26 +149,48 @@ export default function App() {
     if (hasInitializedRef.current) return;
     hasInitializedRef.current = true;
 
-    const config = getVaultConfig();
-    const stored = getEncryptedNotes();
-    setEncryptedNotes(stored);
+    try {
+      const config = getVaultConfig();
+      const stored = getEncryptedNotes();
+      setEncryptedNotes(stored);
 
-    if (config) {
-      setVaultConfig(config);
-      setIsVaultConfigured(true);
+      if (config) {
+        setVaultConfig(config);
+        setIsVaultConfigured(true);
 
-      // Check session or try default passphrase so user is not stuck on a lock screen
-      const sessionPass = sessionStorage.getItem('cipher_session_pass') || DEFAULT_PASSPHRASE;
-      unlockVaultWithPassphrase(sessionPass).then((key) => {
-        if (key) {
-          sessionStorage.setItem('cipher_session_pass', sessionPass);
-          setVaultKey(key);
-          refreshDecryptedNotes(stored, key);
-        }
-      });
-    } else {
-      // First run: automatically set up default secure vault so the app opens immediately
-      handleSetupVault(DEFAULT_PASSPHRASE);
+        // Check if vault is using default password
+        unlockVaultWithPassphrase(DEFAULT_PASSPHRASE).then((defaultKey) => {
+          setIsUsingDefaultPassword(!!defaultKey);
+        });
+
+        // Check session or try default passphrase so user is not stuck on a lock screen
+        let sessionPass = DEFAULT_PASSPHRASE;
+        try {
+          sessionPass = sessionStorage.getItem('cipher_session_pass') || DEFAULT_PASSPHRASE;
+        } catch {}
+
+        unlockVaultWithPassphrase(sessionPass)
+          .then((key) => {
+            if (key) {
+              try {
+                sessionStorage.setItem('cipher_session_pass', sessionPass);
+              } catch {}
+              setVaultKey(key);
+              refreshDecryptedNotes(stored, key);
+              setIsUsingDefaultPassword(sessionPass === DEFAULT_PASSPHRASE);
+            }
+          })
+          .catch((err) => {
+            console.warn('Auto-unlock error on mount:', err);
+          });
+      } else {
+        // First run: automatically set up default secure vault so the app opens immediately
+        handleSetupVault(DEFAULT_PASSPHRASE).catch((err) => {
+          console.warn('Initial vault setup error on mount:', err);
+        });
+      }
+    } catch (err) {
+      console.error('Mount vault init error:', err);
     }
   }, [handleSetupVault, refreshDecryptedNotes]);
 
@@ -157,10 +199,14 @@ export default function App() {
     const root = document.documentElement;
     if (isDarkMode) {
       root.classList.add('dark');
-      localStorage.setItem('cipher_theme', 'dark');
+      try {
+        localStorage.setItem('cipher_theme', 'dark');
+      } catch {}
     } else {
       root.classList.remove('dark');
-      localStorage.setItem('cipher_theme', 'light');
+      try {
+        localStorage.setItem('cipher_theme', 'light');
+      } catch {}
     }
   }, [isDarkMode]);
 
@@ -181,69 +227,127 @@ export default function App() {
 
   // Unlock vault
   const handleUnlockVault = async (passphrase: string): Promise<boolean> => {
-    const key = await unlockVaultWithPassphrase(passphrase);
-    if (!key) return false;
-
-    sessionStorage.setItem('cipher_session_pass', passphrase);
-    setVaultKey(key);
-    const stored = getEncryptedNotes();
-    setEncryptedNotes(stored);
-    await refreshDecryptedNotes(stored, key);
-
-    // Process any shared content received before vault was unlocked
     try {
-      const pendingRaw = sessionStorage.getItem('cipher_pending_share');
-      if (pendingRaw) {
-        sessionStorage.removeItem('cipher_pending_share');
-        const parsed = JSON.parse(pendingRaw);
-        setTimeout(() => {
-          handleProcessIncomingShare(parsed.title || '', parsed.text || '', parsed.url || '');
-        }, 150);
+      const cleanPass = passphrase.trim();
+      // Try raw, and if that fails try trimmed (to accommodate mobile virtual keyboard auto-spaces)
+      let key = await unlockVaultWithPassphrase(passphrase);
+      if (!key && cleanPass !== passphrase) {
+        key = await unlockVaultWithPassphrase(cleanPass);
       }
-    } catch {
-      // Ignore
-    }
+      if (!key) return false;
 
-    return true;
+      const effectivePass = cleanPass || passphrase;
+      try {
+        sessionStorage.setItem('cipher_session_pass', effectivePass);
+      } catch {}
+
+      setVaultKey(key);
+      const stored = getEncryptedNotes();
+      setEncryptedNotes(stored);
+      await refreshDecryptedNotes(stored, key);
+      setIsUsingDefaultPassword(effectivePass === DEFAULT_PASSPHRASE);
+
+      // Process any shared content received before vault was unlocked
+      try {
+        const pendingRaw = sessionStorage.getItem('cipher_pending_share');
+        if (pendingRaw) {
+          sessionStorage.removeItem('cipher_pending_share');
+          const parsed = JSON.parse(pendingRaw);
+          setTimeout(() => {
+            handleProcessIncomingShare(parsed.title || '', parsed.text || '', parsed.url || '');
+          }, 150);
+        }
+      } catch {
+        // Ignore
+      }
+
+      return true;
+    } catch (err) {
+      console.warn('Unlock error in handleUnlockVault:', err);
+      return false;
+    }
   };
 
   // Lock vault (wipe RAM key & session)
   const handleLockVault = () => {
-    sessionStorage.removeItem('cipher_session_pass');
+    try {
+      sessionStorage.removeItem('cipher_session_pass');
+    } catch {}
     setVaultKey(null);
     setDecryptedNotes([]);
     setSelectedNoteId(null);
   };
 
-  // Reset vault and immediately reopen with clean default vault
+  // Reset vault and immediately reopen with clean default vault (Factory Reset)
   const handleResetVault = async () => {
     resetVault();
-    sessionStorage.removeItem('cipher_session_pass');
+    try {
+      sessionStorage.removeItem('cipher_session_pass');
+    } catch {}
     setVaultKey(null);
     setVaultConfig(null);
     setIsVaultConfigured(false);
     setEncryptedNotes([]);
     setDecryptedNotes([]);
     setSelectedNoteId(null);
+    setIsUsingDefaultPassword(true);
     await handleSetupVault(DEFAULT_PASSPHRASE);
   };
 
-  // 1-Click Quickstart
+  // 1-Click Quickstart (ONLY unlocks if vault is on default passphrase - NEVER wipes user data!)
   const handleQuickStart = async () => {
     try {
       const key = await unlockVaultWithPassphrase(DEFAULT_PASSPHRASE);
       if (key) {
-        sessionStorage.setItem('cipher_session_pass', DEFAULT_PASSPHRASE);
+        try {
+          sessionStorage.setItem('cipher_session_pass', DEFAULT_PASSPHRASE);
+        } catch {}
         setVaultKey(key);
         const stored = getEncryptedNotes();
         setEncryptedNotes(stored);
         await refreshDecryptedNotes(stored, key);
+        setIsUsingDefaultPassword(true);
         return;
       }
-    } catch {
-      // Ignore
+    } catch (e) {
+      console.warn('Quickstart unlock with default failed:', e);
     }
-    await handleResetVault();
+    // Safe: NEVER wipe custom vault data on quickstart attempt!
+    throw new Error(
+      'Dieser Tresor ist mit einem persönlichen Master-Passwort geschützt. Ein 1-Klick-Schnellstart ohne Passwort ist nicht möglich.'
+    );
+  };
+
+  // Change Master Password and re-encrypt all notes with new AES-256 key
+  const handleChangeMasterPassword = async (
+    currentPass: string,
+    newPass: string
+  ): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const cleanCurrent = currentPass.trim();
+      const currentKey = await unlockVaultWithPassphrase(cleanCurrent);
+      if (!currentKey) {
+        return { success: false, error: 'Das aktuelle Master-Passwort ist nicht korrekt.' };
+      }
+
+      const cleanNew = newPass.trim();
+      const { key: newKey, config: newConfig } = await reEncryptVaultWithNewPassphrase(
+        cleanNew,
+        decryptedNotes
+      );
+
+      try {
+        sessionStorage.setItem('cipher_session_pass', cleanNew);
+      } catch {}
+
+      setVaultKey(newKey);
+      setVaultConfig(newConfig);
+      setIsUsingDefaultPassword(cleanNew === DEFAULT_PASSPHRASE);
+      return { success: true };
+    } catch (err) {
+      console.error('Password change error:', err);
+      return { success: false, error: 'Fehler beim Ändern des Passworts: ' + String(err) };
+    }
   };
 
   // Persist updated or new notes
@@ -744,6 +848,9 @@ export default function App() {
         onLockVault={handleLockVault}
         onOpenSync={() => setIsSyncModalOpen(true)}
         onOpenShareReceive={() => setIsShareReceiveOpen(true)}
+        onOpenInstall={install}
+        onOpenSecurity={() => setIsSecurityModalOpen(true)}
+        isInstallable={isInstallable}
         isDarkMode={isDarkMode}
         onToggleTheme={() => setIsDarkMode(!isDarkMode)}
         syncState={syncState}
@@ -874,12 +981,23 @@ export default function App() {
       {!vaultKey && (
         <VaultLockModal
           isConfigured={isVaultConfigured}
+          isUsingDefaultPassword={isUsingDefaultPassword}
           onUnlock={handleUnlockVault}
           onSetup={handleSetupVault}
           onResetVault={handleResetVault}
           onQuickStart={handleQuickStart}
+          isInstallable={isInstallable}
+          onOpenInstall={install}
         />
       )}
+
+      {/* Master Password & Security Settings Modal */}
+      <VaultSecurityModal
+        isOpen={isSecurityModalOpen}
+        onClose={() => setIsSecurityModalOpen(false)}
+        isUsingDefaultPassword={isUsingDefaultPassword}
+        onChangeMasterPassword={handleChangeMasterPassword}
+      />
 
       {/* Cloud Sync & Backup Modal */}
       <CloudSyncModal
@@ -920,6 +1038,15 @@ export default function App() {
         onClose={() => setIsCameraOpen(false)}
         onCapturePhoto={handleSavePhotoFromCamera}
         targetTitle={cameraTarget === 'current' ? selectedNote?.title : null}
+      />
+
+      {/* PWA Install Guide Modal */}
+      <PWAInstallModal
+        isOpen={showInstallGuide}
+        onClose={() => setShowInstallGuide(false)}
+        isIOS={isIOS}
+        hasNativePrompt={hasNativePrompt}
+        onTriggerNativePrompt={install}
       />
     </div>
   );

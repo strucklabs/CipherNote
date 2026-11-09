@@ -26,7 +26,20 @@ export function generateRandomSalt(length = 16): Uint8Array {
   return salt;
 }
 
+export function isWebCryptoAvailable(): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    typeof window.crypto !== 'undefined' &&
+    typeof window.crypto.subtle !== 'undefined'
+  );
+}
+
 export async function deriveKey(passphrase: string, salt: Uint8Array): Promise<CryptoKey> {
+  if (!isWebCryptoAvailable()) {
+    throw new Error(
+      'Web Crypto API ist auf diesem Gerät oder Browser nicht verfügbar. Wenn Sie über eine lokale IP (http://...) im mobilen Browser zugreifen, verlangt der Browser zwingend HTTPS oder localhost.'
+    );
+  }
   const enc = new TextEncoder();
   const rawKeyMaterial = await crypto.subtle.importKey(
     'raw',
