@@ -1,7 +1,12 @@
 {
-  "name": "react-example",
+  "name": "ciphernote",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
+  "description": "End-to-End verschlüsselte Notiz- und Clipboard-PWA mit AES-256-GCM",
+  "author": "Marco Struck <marco.struck.gm@gmail.com>",
+  "contributors": [
+    "Google AI Studio"
+  ],
   "type": "module",
   "scripts": {
     "dev": "vite --port=3000 --host=0.0.0.0",

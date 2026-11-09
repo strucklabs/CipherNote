@@ -177,6 +177,13 @@ npm run build
 
 ---
 
+## 👤 Autor & Credits
+
+* **Marco Struck** ([marco.struck.gm@gmail.com](mailto:marco.struck.gm@gmail.com)) – Idee, Konzeption & Projektleitung
+* **Google AI Studio** – Entwicklung & Implementierungs-Unterstützung
+
+---
+
 ## 📄 Lizenz
 
 Dieses Projekt ist unter der [MIT-Lizenz](LICENSE) lizenziert.
