@@ -14,15 +14,22 @@
 ## ✨ Features im Überblick
 
 ### 🔒 Kompromisslose Sicherheit & Zero-Knowledge
-* **AES-256-GCM Verschlüsselung:** Notiztexte, Titel, Tags, Bilder und Audiodateien werden mit militärischer Verschlüsselung und Integritätsprüfung (Auth-Tag) gesichert.
+* **AES-256-GCM Verschlüsselung:** Notiztexte, Titel, Tags, Anhänge, Bilder und Audiodateien werden mit militärischer Verschlüsselung und 128-Bit-Integritätsprüfung (Auth-Tag) gesichert.
 * **PBKDF2-Schlüsselableitung:** Ihr Master-Passwort wird über 250.000 SHA-256-Runden mit einem kryptographisch zufälligen Salt geschützt.
-* **Flüchtiger Arbeitsspeicher:** Der entschlüsselte Schlüssel wird niemals persistent in Cookies oder Storage geschrieben. Nach dem Sperren wird der Schlüssel sofort aus dem RAM gelöscht.
-* **Auto-Vault-Setup:** Sofort einsatzbereit beim ersten Start, mit der Option, jederzeit ein persönliches Master-Passwort zu vergeben.
+* **Master-Passwort Verwaltung:** Vergabe und nachträgliche Änderung des Master-Passworts inklusive automatischer Neuverschlüsselung aller bestehenden Notizen im Hintergrund.
+* **Schutz vor Datenverlust:** Ein Zurücksetzen auf den Standard-Tresor verlangt zur Absicherung die explizite Bestätigungseingabe des Wortes `LÖSCHEN`. Der 1-Klick-Schnellstart öffnet nur Tresore ohne benutzerdefiniertes Passwort.
+* **Flüchtiger Arbeitsspeicher:** Der entschlüsselte Schlüssel wird niemals persistent in Cookies oder Storage geschrieben. Nach dem Sperren wird der Schlüssel sofort aus dem RAM getilgt.
+
+### 📱 Progressive Web App (PWA) & Mobile-First
+* **Installierbar:** Direkte Installation als eigenständige App auf Android (Google Pixel, Samsung Galaxy etc.), iOS (Safari: Zum Home-Bildschirm) und Desktop (Chrome/Edge).
+* **Robuster Offline-Betrieb:** Automatisches Pre-Caching der Kernressourcen und Startseite im Service Worker (`sw.js`).
+* **Android Web Share Target:** Inhalte (Texte, Links, Zwischenablage) direkt aus jeder nativen Android-App heraus mit CipherNote teilen.
+* **Schneller Schnellzugriff:** Dezenter PWA-Installations-Button sowohl in der oberen Menüleiste als auch auf dem Sperrbildschirm.
 
 ### 📸 Live-Kamera & Bildverarbeitung
 * **Integrierter Live-Kamera-Sucher (`CameraModal`):** Direkte Fotoaufnahme im Browser über WebRTC – funktioniert auf Desktop-Webcams und Smartphones gleichermaßen.
 * **Kamerawechsel:** Nahtloser Wechsel zwischen Haupt- (Rückseite) und Frontkamera.
-* **Smart Compression:** Hohe Auflösungen (z. B. 50 MP von modernen Handys) werden automatisch verlustarm auf WebP/JPEG optimiert (~80–150 KB), ohne die Lesbarkeit zu beeinträchtigen.
+* **Smart Compression:** Hohe Auflösungen moderner Smartphone-Kameras (z. B. Pixel 50 MP) werden automatisch verlustarm optimiert (~80–150 KB), ohne die Lesbarkeit von Dokumenten zu beeinträchtigen.
 * **System-Fallback:** Wahlweise kann auch die native Kamera-App des Smartphones oder die Dateiauswahl genutzt werden.
 
 ### 🎙️ Audio- & Sprachmemos
@@ -33,17 +40,15 @@
 ### 📋 Schnellerfassung & Clipboard-Integration
 * **1-Klick-Übernahme:** Automatische Erfassung von Texten und Screenshots direkt aus der Zwischenablage.
 * **Globaler Paste-Handler:** Einfach überall im Browser `Strg+V` drücken, um Inhalte als Notiz zu sichern.
-* **Android Web Share Target:** Teilen Sie Links und Texte aus jeder anderen Android-App direkt in CipherNote.
 
 ### ⏰ Fristen, Deadlines & Organisation
 * **Erinnerungs-Banner:** Farbcodierte Warnleiste (Gelb für anstehende Fristen, Rot für überfällige Aufgaben).
 * **Schnellauswahl:** 1-Klick-Vorgaben für *„Heute 20:00“*, *„Morgen 09:00“*, *„In 3 Tagen“* oder *„Nächste Woche“*.
 * **Organisation:** Anpinnen (`Pin`), Hashtags (`#Tag`), Volltextsuche (`/` Schnelltaste) und Schnellfilter (Alle, Gepinnt, Fristen, Clips).
 
-### 📱 Progressive Web App (PWA)
-* **Installierbar:** Direkte Installation als App auf Android (Pixel, Samsung etc.), iOS (Zum Home-Bildschirm) und Desktop (Chrome/Edge).
-* **Offline-First:** Vollständig offline nutzbar dank Service Worker und Cache-First-Strategie.
-* **Responsiv & Dark Mode:** Perfekt optimiert für Einhandbedienung am Smartphone sowie breite Desktop-Monitore.
+### ☁️ Backup & Cloud-Synchronisation
+* **Verschlüsselter Datei-Export (`.ciph`):** Vollständige AES-256-gesicherte Backups zum lokalen Speichern.
+* **Eigene Cloud via WebDAV:** Direkte Synchronisation mit Nextcloud, ownCloud oder jedem WebDAV-kompatiblen Cloud-Speicher.
 
 ---
 
@@ -58,7 +63,49 @@
 
 ---
 
-## 🚀 Schnellstart (Lokale Installation)
+## 🌐 Deployment auf eigenem Webspace (Apache / Nginx)
+
+CipherNote ist eine rein statische Single-Page-App (SPA). Sie benötigt **kein Node.js, kein PHP und keine Server-Datenbank**.
+
+### 1. Build erzeugen
+```bash
+npm run build
+```
+Der erstellte Ordner `dist/` enthält alle fertigen HTML-, JS-, CSS- und PWA-Dateien.
+
+### 2. Auf den Webspace hochladen
+Laden Sie den gesamten Inhalt aus `dist/` in das Web-Verzeichnis (z. B. `public_html` oder `htdocs`) Ihres Webservers hoch.
+
+### 3. `.htaccess` für Apache-Webserver (HTTPS + SPA-Routing)
+Erstellen Sie im selben Web-Verzeichnis eine `.htaccess`-Datei mit folgendem Inhalt:
+
+```apache
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /
+
+  # 1. Automatisch immer von unverschlüsseltem HTTP auf sicheres HTTPS umleiten
+  RewriteCond %{HTTPS} off
+  RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+  # 2. SPA-Routing: Reale Dateien ausliefern, alle anderen URLs auf index.html leiten
+  RewriteRule ^index\.html$ - [L]
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteRule . /index.html [L]
+</IfModule>
+
+# 3. PWA-Updates sofort aktivieren (sw.js nicht cachen)
+<Files "sw.js">
+  Header set Cache-Control "no-cache, no-store, must-revalidate"
+  Header set Pragma "no-cache"
+  Header set Expires 0
+</Files>
+```
+
+---
+
+## 🚀 Schnellstart (Lokale Entwicklung)
 
 ### Voraussetzungen
 * [Node.js](https://nodejs.org/) (Version 18 oder höher empfohlen)
@@ -84,12 +131,6 @@ Die Anwendung ist nun unter **`http://localhost:3000`** im Browser erreichbar (m
 ### 4. Produktions-Build erstellen
 ```bash
 npm run build
-```
-Generiert die fertigen, minimierten statischen Dateien im Ordner **`dist/`**.
-
-### 5. Produktions-Vorschau testen
-```bash
-npm run preview
 ```
 
 ---
@@ -118,6 +159,9 @@ npm run preview
 │   │   ├── NoteEditor.tsx          # Notiz-Detailansicht, Markdown & Toolbar
 │   │   ├── NotesSidebar.tsx        # Notizliste, Suche, Sortierung
 │   │   ├── TopBar.tsx              # PWA-Install-Button, Vault-Lock, Theme
+│   │   ├── VaultLockModal.tsx      # Tresor-Entsperrung & Werksreset-Schutz
+│   │   ├── VaultSecurityModal.tsx  # Master-Passwort ändern & Re-Verschlüsselung
+│   │   ├── CloudSyncModal.tsx      # WebDAV / Nextcloud & Backup-Export (.ciph)
 │   │   └── ...
 │   ├── lib/
 │   │   ├── crypto.ts       # AES-256-GCM & PBKDF2 Web Crypto Implementierung
@@ -127,7 +171,8 @@ npm run preview
 │   ├── App.tsx             # Hauptanwendungs-Layout & Vault-Zustand
 │   └── main.tsx            # React Entry Point
 ├── package.json
-└── vite.config.ts
+├── vite.config.ts
+└── README.md
 ```
 
 ---
